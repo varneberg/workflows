@@ -25,6 +25,10 @@ jobs:
       ...
 ```
 
+### helm-gcp-ar-upload.yaml
+
+Simple workflow that lints a helm chart and uploades it to a GCP Artifact Registry repository.
+
 ### delete-workflows.sh
 
 Simple script that deletes all previous runs of a github workflow. I found it somewhere on a forum and it works prefectly fine. I've found it useful when I have renamed a workflow and all previous runs from the prior workflow has to otherwise be deleted one by one. 
