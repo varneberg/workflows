@@ -1,0 +1,47 @@
+# Upload a helm chart to GCP Artifact Registry
+name: "Helm web test & upload"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+    - master
+    - main
+env:
+  CHART_NAME: ${{ secrets.CHART_NAME }}
+
+jobs:
+  helm-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # Authenticate to Google Cloud norrona-infrastructure-test
+      - id: "auth"
+        name: "Authenticate to Google Cloud"
+        uses: "google-github-actions/auth@v0"
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SA_EMAIL }}
+          token_format: "access_token"
+
+      - name: Helm lint
+        id: helm-lint
+        run: |
+          helm lint helm-charts/web --strict
+
+      - name: Helm Login
+        run: |
+           helm registry login -u oauth2accesstoken -p ${{ steps.auth.outputs.access_token }} ${ secrets.REPO_URL }
+
+      # Push image to artifact registry
+      - name: "Helm push to Artifact Registry"
+        id: "helm-push"
+        run: |
+          helm package ${ env.CHART_NAME j}
+          VERSION=$(${ env.CHART_NAME } | grep "version:" | awk '{print $2}')
+          helm push web-$VERSION.tgz oci:${ secrets.REPO_LOCATION }/${ secrets.REPO_URL }
