@@ -1,0 +1,56 @@
+# Creates a pull request on azure-devops
+parameters:
+  - name: REPOSITORY
+    type: string
+
+  - name: SOURCE_BRANCH
+    type: string
+
+  - name: TARGET_BRANCH
+    type: string
+    default: "main"
+
+  - name: PR_TITLE
+    type: string
+
+  - name: PR_DESCRIPTION
+    type: string
+    default: ""
+
+  - name: PR_COMMIT_MESSAGE
+    type: string
+    default: ""
+
+  - name: PR_AUTO_COMPLETE
+    type: boolean
+    default: false
+
+  - name: PR_BYPASS_POLICY
+    type: boolean
+    default: false
+
+steps:
+  - script: |
+      az extension add -n azure-devops
+    displayName: "Install Azure DevOps Extension"
+
+  - script: |
+      echo ${AZURE_DEVOPS_CLI_PAT} | az devops login
+    env:
+      AZURE_DEVOPS_CLI_PAT: $(System.AccessToken)
+    displayName: "Login to Azure DevOps"
+
+  - script: |
+      az devops configure --defaults organization=$(System.TeamFoundationCollectionUri) project=$(System.TeamProject) --use-git-aliases true
+    displayName: "Set default Azure DevOps organization and project"
+
+  - script: >
+      az repos pr create
+      --repository "${{ parameters.REPOSITORY }}"
+      --source-branch "${{ parameters.SOURCE_BRANCH }}"
+      --target-branch "${{ parameters.TARGET_BRANCH }}"
+      --title "${{ parameters.PR_TITLE }}"
+      --description "${{ parameters.PR_DESCRIPTION }}"
+      --merge-commit-message "${{ parameters.PR_COMMIT_MESSAGE }}"
+      --auto-complete "${{ parameters.PR_AUTO_COMPLETE}}"
+    displayName: "Create pull request"
