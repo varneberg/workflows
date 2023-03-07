@@ -1,0 +1,117 @@
+# Semantic release for react native packages
+# Updates package.json inside packages/${{ parameters.PACKAGE_NAME }}
+# Creates a PR with new package.json in azure devops git
+# Creates a new tag with the version number
+
+
+parameters:
+- name: PACKAGE_NAME
+  type: string
+
+jobs:
+- job: semantic
+  displayName: Semantic Release
+  continueOnError: true
+  steps:
+
+  - task: NodeTool@0
+    displayName: "Install Node.js"
+    inputs:
+      versionSpec: "16.x"
+
+  - checkout: self
+    persistCredentials: true
+    clean: true
+    fetchTags: true
+
+  - script: |
+      git config --global user.email "semantic@bot.com"
+      git config --global user.name "semantic-bot"
+    displayName: Git credentials
+    workingDirectory: $(System.DefaultWorkingDirectory)
+
+  - script:
+      CUR_BRANCH=$(echo $(Build.SourceBranch) | cut -d "/" -f3-);
+      echo "##vso[task.setvariable variable=CURRENT_BRANCH;isOutput=true]$CUR_BRANCH"
+    name: cur_branch
+    displayName: Get current branch name
+
+  - script: >
+      npx
+      -p semantic-release@^19.0.5
+      -p semantic-release-ado@^1.4.0
+      -p @semantic-release/release-notes-generator@^10.0.3
+      -p @semantic-release/changelog@^6.0.1
+      -p @google/semantic-release-replace-plugin@^1.2.0
+      -p @semantic-release/git@^10.0.1
+      semantic-release
+      --branches "$(cur_branch.CURRENT_BRANCH)"
+      --debug
+      --dry-run
+    displayName: Run Semantic Release
+    name: semantic
+    workingDirectory: packages/${{ parameters.PACKAGE_NAME }}
+
+  - script: |
+      echo "##vso[task.setvariable variable=SEM_BRANCH;isOutput=true]sem/${{ parameters.PACKAGE_NAME }}/$(semantic.NEXTRELEASE)"
+    displayName: Set semantic branch name
+    name: sembranch
+
+- job: create_pr
+  displayName: Create Pull Request
+  dependsOn: [semantic]
+  condition: succeeded()
+  variables:
+    SEM_BRANCH: $[ dependencies.semantic.outputs['sembranch.SEM_BRANCH']]
+    SEM_VERSION: $[ dependencies.semantic.outputs['semantic.NEXTRELEASE']]
+    PACKAGE_PATH: packages/${{ parameters.PACKAGE_NAME}}/package.json
+  steps:
+  - checkout: #repository
+    persistCredentials: true
+    clean: true
+    fetchTags: true
+
+  - script: |
+      exit 0
+    condition: eq(length(variables['SEM_VERSION']), 0)
+    displayName: Exit if no new version
+
+  - script: |
+      git config --global user.email "semantic@bot.com"
+      git config --global user.name "semantic-bot"
+    displayName: Git credentials
+    workingDirectory: $(System.DefaultWorkingDirectory)
+
+  - script: |
+      CURRENT_VERSION=$(jq -r '."version"' $(PACKAGE_PATH))
+      echo "##vso[task.setvariable variable=CURRENT_VERSION;isOutput=true]$CURRENT_VERSION"
+    displayName: Get Current version
+    name: current
+
+  - script: |
+      git checkout origin/main
+      git checkout -b $SEM_BRANCH
+      mv $(PACKAGE_PATH) $(PACKAGE_PATH).old
+      jq -r '."version" |= "$(SEM_VERSION)"' $(PACKAGE_PATH).old > $(PACKAGE_PATH)
+      rm $(PACKAGE_PATH).old
+      git commit -a -m "updated package.json [skip ci]"
+      git push -u origin $SEM_BRANCH
+    displayName: Create upstream semantic branch
+
+  - template: steps/create-pr.yml
+    parameters:
+      REPOSITORY: "frontend"
+      SOURCE_BRANCH: "$(SEM_BRANCH)"
+      TARGET_BRANCH: "main"
+      PR_TITLE: "Semantic(${{ parameters.PACKAGE_NAME }}): Update to $(SEM_VERSION)"
+      PR_DESCRIPTION: "Update version in package.json of ${{ parameters.PACKAGE_NAME}} to new version: $(SEM_VERSION)"
+      PR_COMMIT_MESSAGE: "Updated package.json in ${{ parameters.PACKAGE_NAME }} to $(SEM_VERSION)[skip ci]"
+      PR_AUTO_COMPLETE: "true"
+
+  - script: |
+      TAG="${{ parameters.PACKAGE_NAME }}-$(SEM_VERSION)"
+      git fetch origin --tags
+      git tag -a $TAG -m $TAG
+      git push origin $TAG
+      git status
+    displayName: Push new tag
